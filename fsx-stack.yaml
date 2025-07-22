@@ -1,0 +1,91 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Stack for creating FSx Lustre filesystem for SageMaker HyperPod
+
+Parameters:
+  ResourceNamePrefix:
+    Description: Prefix to be used for all resources created by this template.
+    Type: String
+    Default: sagemaker-hyperpod-eks
+
+  FSxLustreCapacity:
+    Description: Storage capacity in GiB (1200 or increments of 2400)
+    Type: Number
+    Default: 1200
+
+  FSxLustrePerUnitStorageThroughput:
+    Description: Provisioned Read/Write (MB/s/TiB)
+    Type: Number
+    Default: 250
+    AllowedValues:
+      - 125
+      - 250
+      - 500
+      - 1000
+
+  FSxLustreCompression:
+    Description: Data compression type
+    Type: String
+    AllowedValues:
+      - "LZ4"
+      - "NONE"
+    Default: "LZ4"
+
+  FSxLustreVersion:
+    Description: Lustre software version
+    Type: String
+    AllowedValues:
+      - "2.15"
+      - "2.12"
+    Default: "2.15"
+
+  VpcId:
+    Description: The ID of the VPC.
+    Type: AWS::EC2::VPC::Id
+
+  PrivateSubnetId:
+    Description: The ID of the private subnet.
+    Type: AWS::EC2::Subnet::Id
+
+  SecurityGroupId:
+    Description: The ID of the security group.
+    Type: String
+
+Resources:
+  FSxLFilesystem:
+    Type: AWS::FSx::FileSystem
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      FileSystemType: LUSTRE
+      StorageType: SSD
+      FileSystemTypeVersion: !Ref FSxLustreVersion
+      StorageCapacity: !Ref FSxLustreCapacity
+      SecurityGroupIds:
+        - !Ref SecurityGroupId
+      SubnetIds:
+        - !Ref PrivateSubnetId
+      LustreConfiguration:
+        DataCompressionType: !Ref FSxLustreCompression
+        DeploymentType: PERSISTENT_2
+        PerUnitStorageThroughput: !Ref FSxLustrePerUnitStorageThroughput
+        MetadataConfiguration:
+          Mode: AUTOMATIC
+
+Outputs:
+  FSxLustreFilesystemId:
+    Description: The ID of the FSx Lustre filesystem
+    Value: !Ref FSxLFilesystem
+    Export:
+      Name: !Sub ${AWS::StackName}-FSxLustreFilesystemId
+
+  FSxLustreFilesystemMountname:
+    Description: The mount name of the FSx Lustre filesystem
+    Value: !GetAtt FSxLFilesystem.LustreMountName
+    Export:
+      Name: !Sub ${AWS::StackName}-FSxLustreFilesystemMountname
+
+  FSxLustreFilesystemDNSname:
+    Description: The DNS name of the FSx Lustre filesystem
+    Value: !GetAtt FSxLFilesystem.DNSName
+    Export:
+      Name: !Sub ${AWS::StackName}-FSxLustreFilesystemDNSname
