@@ -1,0 +1,126 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Stack for modifying an existing VPC to meet SageMaker HyperPod requirements
+
+Parameters:
+  ResourceNamePrefix:
+    Description: Prefix to be used for all resources created by this template.
+    Type: String
+    Default: sagemaker-hyperpod-eks
+
+  VpcId:
+    Description: The ID of the existing VPC to modify.
+    Type: AWS::EC2::VPC::Id
+
+  PublicSubnetId:
+    Description: The ID of an existing public subnet in your VPC.
+    Type: AWS::EC2::Subnet::Id
+
+Resources:
+  # Flow logs for the existing VPC
+  FlowLogsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: vpc-flow-logs.amazonaws.com
+          Action: sts:AssumeRole
+      Policies:
+      - PolicyName: flowlogs-policy
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            - logs:DescribeLogGroups
+            - logs:DescribeLogStreams
+            Resource: !GetAtt FlowLogsGroup.Arn
+
+  FlowLogsGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      RetentionInDays: 7
+
+  FlowLogVPC:
+    Type: AWS::EC2::FlowLog
+    Properties:
+      DeliverLogsPermissionArn: !GetAtt FlowLogsRole.Arn
+      LogGroupName: FlowLogsGroup
+      ResourceId: !Ref VpcId
+      ResourceType: VPC
+      TrafficType: ALL
+
+  # Create a NAT Gateway in the existing public subnet if needed
+  NATGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt ElasticIP.AllocationId
+      SubnetId: !Ref PublicSubnetId
+
+  ElasticIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+
+  # Create a security group for EFA communication
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow EFA communication for Multi-Node Parallel Batch jobs
+      VpcId: !Ref VpcId
+      Tags:
+        - Key: Name
+          Value: !Sub ${ResourceNamePrefix}-security-group
+
+  EFASecurityGroupIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      Description: All to all communication for EFA Ingress within Security Group
+      IpProtocol: -1
+      FromPort: -1
+      ToPort: -1
+      GroupId: !Ref SecurityGroup
+      SourceSecurityGroupId: !Ref SecurityGroup
+
+  EFASecurityGroupEgress:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      Description: All to all communication for EFA Egress within Security Group
+      IpProtocol: -1
+      FromPort: -1
+      ToPort: -1
+      GroupId: !Ref SecurityGroup
+      DestinationSecurityGroupId: !Ref SecurityGroup
+
+  EFASecurityGroupEgressECS:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      Description: All to all communication for Egress to all
+      IpProtocol: -1
+      FromPort: -1
+      ToPort: -1
+      GroupId: !Ref SecurityGroup
+      CidrIp: 0.0.0.0/0
+
+Outputs:
+  VpcId:
+    Value: !Ref VpcId
+    Description: The ID of the VPC
+    Export:
+      Name: !Sub ${AWS::StackName}-VpcId
+
+  NatGatewayId:
+    Value: !Ref NATGateway
+    Description: The ID of the NAT Gateway
+    Export:
+      Name: !Sub ${AWS::StackName}-NatGatewayId
+
+  SecurityGroupId:
+    Value: !Ref SecurityGroup
+    Description: The ID of the security group
+    Export:
+      Name: !Sub ${AWS::StackName}-SecurityGroupId
